@@ -67,6 +67,28 @@ var config = DrawThingsConfiguration(
 queue.enqueue(prompt: "detailed portrait", configuration: config)
 ```
 
+### With control hints
+
+Hints provide ControlNet input tensors (e.g. shuffle, depth, pose) directly to the generation request. Each `HintProto` specifies a `hintType` string and an array of `TensorAndWeight` entries containing the tensor data and its weight.
+
+```swift
+// Build a shuffle hint from an input image
+let tensorData = try ImageHelpers.imageToDTTensor(inputImage, forceRGB: true)
+var tensor = TensorAndWeight()
+tensor.tensor = tensorData
+tensor.weight = 1.0
+
+var hint = HintProto()
+hint.hintType = "shuffle"
+hint.tensors = [tensor]
+
+queue.enqueue(
+    prompt: "reimagine this scene",
+    configuration: config,
+    hints: [hint]
+)
+```
+
 ### Batch enqueue
 
 ```swift
@@ -222,6 +244,7 @@ queue.clearErrors()
 | `configuration` | `DrawThingsConfiguration` | Generation parameters |
 | `image` | `PlatformImage?` | Input image for img2img |
 | `mask` | `PlatformImage?` | Mask for inpainting |
+| `hints` | `[HintProto]` | ControlNet hint tensors (e.g. shuffle, depth) |
 | `createdAt` | `Date` | When the request was created |
 
 ### GenerationResult

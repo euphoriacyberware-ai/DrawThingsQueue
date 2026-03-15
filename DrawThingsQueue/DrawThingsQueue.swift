@@ -24,6 +24,7 @@ public struct GenerationRequest: Identifiable {
     public let configuration: DrawThingsConfiguration
     public let image: PlatformImage?
     public let mask: PlatformImage?
+    public let hints: [HintProto]
     public let createdAt: Date
 
     public init(
@@ -32,7 +33,8 @@ public struct GenerationRequest: Identifiable {
         negativePrompt: String = "",
         configuration: DrawThingsConfiguration = DrawThingsConfiguration(),
         image: PlatformImage? = nil,
-        mask: PlatformImage? = nil
+        mask: PlatformImage? = nil,
+        hints: [HintProto] = []
     ) {
         self.id = id
         self.prompt = prompt
@@ -40,6 +42,7 @@ public struct GenerationRequest: Identifiable {
         self.configuration = configuration
         self.image = image
         self.mask = mask
+        self.hints = hints
         self.createdAt = Date()
     }
 }
@@ -150,14 +153,16 @@ public class DrawThingsQueue: ObservableObject {
         negativePrompt: String = "",
         configuration: DrawThingsConfiguration = DrawThingsConfiguration(),
         image: PlatformImage? = nil,
-        mask: PlatformImage? = nil
+        mask: PlatformImage? = nil,
+        hints: [HintProto] = []
     ) -> GenerationRequest {
         let request = GenerationRequest(
             prompt: prompt,
             negativePrompt: negativePrompt,
             configuration: configuration,
             image: image,
-            mask: mask
+            mask: mask,
+            hints: hints
         )
         pendingRequests.append(request)
         ensureProcessingStarted()
@@ -285,6 +290,7 @@ public class DrawThingsQueue: ObservableObject {
                         configuration: configData,
                         image: imageData,
                         mask: maskData,
+                        hints: request.hints,
                         progressHandler: { [weak self] signpost in
                             await MainActor.run {
                                 self?.updateProgress(signpost)
