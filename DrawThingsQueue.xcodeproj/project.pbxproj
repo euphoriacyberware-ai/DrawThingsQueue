@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		A4A022362F65D3EE00B5E2D5 /* DrawThingsQueue.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A4A0222A2F65D3EE00B5E2D5 /* DrawThingsQueue.framework */; };
+		A4A022462F65D48700B5E2D5 /* DrawThingsClient in Frameworks */ = {isa = PBXBuildFile; productRef = A4A022452F65D48700B5E2D5 /* DrawThingsClient */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -43,6 +44,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A4A022462F65D48700B5E2D5 /* DrawThingsClient in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -106,6 +108,7 @@
 			);
 			name = DrawThingsQueue;
 			packageProductDependencies = (
+				A4A022452F65D48700B5E2D5 /* DrawThingsClient */,
 			);
 			productName = DrawThingsQueue;
 			productReference = A4A0222A2F65D3EE00B5E2D5 /* DrawThingsQueue.framework */;
@@ -161,6 +164,9 @@
 			);
 			mainGroup = A4A022202F65D3EE00B5E2D5;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				A4A022442F65D48700B5E2D5 /* XCRemoteSwiftPackageReference "DT-gRPC-Swift-Client" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A4A0222B2F65D3EE00B5E2D5 /* Products */;
 			projectDirPath = "";
@@ -480,6 +486,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		A4A022442F65D48700B5E2D5 /* XCRemoteSwiftPackageReference "DT-gRPC-Swift-Client" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/euphoriacyberware-ai/DT-gRPC-Swift-Client";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A4A022452F65D48700B5E2D5 /* DrawThingsClient */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A4A022442F65D48700B5E2D5 /* XCRemoteSwiftPackageReference "DT-gRPC-Swift-Client" */;
+			productName = DrawThingsClient;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = A4A022212F65D3EE00B5E2D5 /* Project object */;
 }
