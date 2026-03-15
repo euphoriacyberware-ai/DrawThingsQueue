@@ -4,9 +4,34 @@ A Swift framework that provides a queue-based API for image generation using [Dr
 
 ## Requirements
 
-- macOS 26.2+ / iOS 26.2+
-- Xcode 26.3+
-- A running Draw Things gRPC server
+- macOS 14+ / iOS 17+
+- Swift 5.9+
+- A running [Draw Things](https://drawthings.ai) gRPC server
+
+## Installation
+
+### Swift Package Manager
+
+Add DrawThingsQueue to your `Package.swift`:
+
+```swift
+dependencies: [
+    .package(url: "https://github.com/euphoriacyberware-ai/DrawThingsQueue.git", branch: "main"),
+]
+```
+
+Then add it to your target's dependencies:
+
+```swift
+.target(
+    name: "YourApp",
+    dependencies: [
+        .product(name: "DrawThingsQueue", package: "DrawThingsQueue"),
+    ]
+)
+```
+
+Or in Xcode: **File → Add Package Dependencies** and enter the repository URL.
 
 ## Setup
 
