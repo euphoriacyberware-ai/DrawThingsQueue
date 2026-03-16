@@ -26,6 +26,7 @@ public struct GenerationRequest: Identifiable {
     public let mask: PlatformImage?
     public let hints: [HintProto]
     public let createdAt: Date
+    public let name: String
 
     public init(
         id: UUID = UUID(),
@@ -34,7 +35,8 @@ public struct GenerationRequest: Identifiable {
         configuration: DrawThingsConfiguration = DrawThingsConfiguration(),
         image: PlatformImage? = nil,
         mask: PlatformImage? = nil,
-        hints: [HintProto] = []
+        hints: [HintProto] = [],
+        name: String? = nil
     ) {
         self.id = id
         self.prompt = prompt
@@ -44,6 +46,18 @@ public struct GenerationRequest: Identifiable {
         self.mask = mask
         self.hints = hints
         self.createdAt = Date()
+        self.name = name ?? Self.generateName(from: prompt)
+    }
+
+    private static func generateName(from prompt: String) -> String {
+        let trimmed = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "Untitled" }
+        if trimmed.count <= 50 { return trimmed }
+        let prefix = String(trimmed.prefix(50))
+        if let lastSpace = prefix.lastIndex(of: " ") {
+            return String(prefix[prefix.startIndex..<lastSpace]) + "..."
+        }
+        return prefix + "..."
     }
 }
 
@@ -75,12 +89,35 @@ public enum RequestStatus {
     case cancelled
 }
 
+// MARK: - JobEvent
+
+public enum JobEvent {
+    case requestAdded(GenerationRequest)
+    case requestStarted(GenerationRequest)
+    case requestProgress(GenerationRequest, GenerationProgress)
+    case requestCompleted(GenerationResult)
+    case requestFailed(GenerationError)
+    case requestCancelled(UUID)
+    case requestRemoved(UUID)
+}
+
 // MARK: - GenerationProgress
 
 @MainActor
 public class GenerationProgress: ObservableObject {
     @Published public var stage: GenerationStage = .textEncoding
     @Published public var previewImage: PlatformImage?
+    @Published public var currentStep: Int = 0
+    @Published public var totalSteps: Int = 0
+
+    public var progressFraction: Double {
+        guard totalSteps > 0 else { return 0 }
+        return Double(currentStep) / Double(totalSteps)
+    }
+
+    public var progressPercentage: Int {
+        Int(progressFraction * 100)
+    }
 
     public init() {}
 }
@@ -98,10 +135,17 @@ public class DrawThingsQueue: ObservableObject {
     @Published public private(set) var isProcessing: Bool = false
     @Published public private(set) var completedResults: [GenerationResult] = []
     @Published public private(set) var errors: [GenerationError] = []
+    @Published public private(set) var isPaused: Bool = false
+    @Published public var lastError: String?
 
     // MARK: Configuration
 
     public var maxCompletedResults: Int = 50
+    public var maxRetries: Int = 3
+
+    // MARK: Event Publisher
+
+    public let events = PassthroughSubject<JobEvent, Never>()
 
     // MARK: Results AsyncStream
 
@@ -130,11 +174,14 @@ public class DrawThingsQueue: ObservableObject {
     private var signalContinuation: AsyncStream<Void>.Continuation?
     private var resultContinuations: [Int: AsyncStream<GenerationResult>.Continuation] = [:]
     private var nextStreamID: Int = 0
+    private var retryCounts: [UUID: Int] = [:]
+    private var storage: QueueStorage?
 
     // MARK: Init
 
-    public init(address: String, useTLS: Bool = true) throws {
+    public init(address: String, useTLS: Bool = true, storage: QueueStorage? = nil) throws {
         self.service = try DrawThingsService(address: address, useTLS: useTLS)
+        self.storage = storage
     }
 
     deinit {
@@ -154,7 +201,8 @@ public class DrawThingsQueue: ObservableObject {
         configuration: DrawThingsConfiguration = DrawThingsConfiguration(),
         image: PlatformImage? = nil,
         mask: PlatformImage? = nil,
-        hints: [HintProto] = []
+        hints: [HintProto] = [],
+        name: String? = nil
     ) -> GenerationRequest {
         let request = GenerationRequest(
             prompt: prompt,
@@ -162,12 +210,29 @@ public class DrawThingsQueue: ObservableObject {
             configuration: configuration,
             image: image,
             mask: mask,
-            hints: hints
+            hints: hints,
+            name: name
         )
+        enqueue(request)
+        return request
+    }
+
+    public func enqueue(_ request: GenerationRequest) {
         pendingRequests.append(request)
+        events.send(.requestAdded(request))
+        persist()
         ensureProcessingStarted()
         signalContinuation?.yield(())
-        return request
+    }
+
+    public func enqueue(_ requests: [GenerationRequest]) {
+        for request in requests {
+            pendingRequests.append(request)
+            events.send(.requestAdded(request))
+        }
+        persist()
+        ensureProcessingStarted()
+        signalContinuation?.yield(())
     }
 
     // MARK: Result Retrieval
@@ -202,6 +267,8 @@ public class DrawThingsQueue: ObservableObject {
         if let index = pendingRequests.firstIndex(where: { $0.id == id }) {
             pendingRequests.remove(at: index)
             cancelledIDs.insert(id)
+            events.send(.requestCancelled(id))
+            persist()
             return true
         }
         if let current = currentRequest, current.id == id {
@@ -215,6 +282,7 @@ public class DrawThingsQueue: ObservableObject {
     public func cancelAll() {
         for request in pendingRequests {
             cancelledIDs.insert(request.id)
+            events.send(.requestCancelled(request.id))
         }
         pendingRequests.removeAll()
         if let current = currentRequest {
@@ -222,6 +290,63 @@ public class DrawThingsQueue: ObservableObject {
             currentRequestCancelled = true
             currentGenerationTask?.cancel()
         }
+        persist()
+    }
+
+    // MARK: Pause / Resume
+
+    public func pause() {
+        isPaused = true
+    }
+
+    public func resume() {
+        isPaused = false
+        lastError = nil
+        signalContinuation?.yield(())
+    }
+
+    public func pauseForReconnection(error: String) {
+        lastError = error
+        isPaused = true
+    }
+
+    // MARK: Retry
+
+    public func canRetry(for requestID: UUID) -> Bool {
+        guard errorsByID[requestID] != nil else { return false }
+        return (retryCounts[requestID] ?? 0) < maxRetries
+    }
+
+    public func retryCount(for requestID: UUID) -> Int {
+        retryCounts[requestID] ?? 0
+    }
+
+    @discardableResult
+    public func retry(_ requestID: UUID) -> Bool {
+        guard let genError = errorsByID[requestID],
+              canRetry(for: requestID) else { return false }
+
+        retryCounts[requestID, default: 0] += 1
+
+        // Remove from errors
+        errors.removeAll { $0.id == requestID }
+        errorsByID.removeValue(forKey: requestID)
+
+        // Re-enqueue the original request
+        let request = genError.request
+        pendingRequests.append(request)
+        events.send(.requestAdded(request))
+        persist()
+        ensureProcessingStarted()
+        signalContinuation?.yield(())
+        return true
+    }
+
+    // MARK: Reordering
+
+    public func moveRequests(from source: IndexSet, to destination: Int) {
+        pendingRequests.move(fromOffsets: source, toOffset: destination)
+        persist()
     }
 
     // MARK: Housekeeping
@@ -234,6 +359,48 @@ public class DrawThingsQueue: ObservableObject {
     public func clearErrors() {
         errors.removeAll()
         errorsByID.removeAll()
+        retryCounts.removeAll()
+    }
+
+    public func clearAll() {
+        cancelAll()
+        clearCompleted()
+        clearErrors()
+    }
+
+    public func remove(_ requestID: UUID) {
+        if let index = pendingRequests.firstIndex(where: { $0.id == requestID }) {
+            pendingRequests.remove(at: index)
+            events.send(.requestRemoved(requestID))
+            persist()
+        } else if resultsByID[requestID] != nil {
+            completedResults.removeAll { $0.id == requestID }
+            resultsByID.removeValue(forKey: requestID)
+            events.send(.requestRemoved(requestID))
+        } else if errorsByID[requestID] != nil {
+            errors.removeAll { $0.id == requestID }
+            errorsByID.removeValue(forKey: requestID)
+            retryCounts.removeValue(forKey: requestID)
+            events.send(.requestRemoved(requestID))
+        }
+    }
+
+    // MARK: Persistence
+
+    public func loadPersistedRequests() {
+        guard let storage else { return }
+        let loaded = storage.loadRequests()
+        for request in loaded {
+            pendingRequests.append(request)
+        }
+        if !loaded.isEmpty {
+            ensureProcessingStarted()
+            signalContinuation?.yield(())
+        }
+    }
+
+    private func persist() {
+        storage?.saveRequests(pendingRequests)
     }
 
     // MARK: Processing Loop
@@ -257,16 +424,25 @@ public class DrawThingsQueue: ObservableObject {
         while !pendingRequests.isEmpty {
             guard !Task.isCancelled else { return }
 
+            if isPaused {
+                return
+            }
+
             let request = pendingRequests.removeFirst()
+            persist()
 
             if cancelledIDs.contains(request.id) {
                 continue
             }
 
             currentRequest = request
-            currentProgress = GenerationProgress()
+            let progress = GenerationProgress()
+            progress.totalSteps = Int(request.configuration.steps)
+            currentProgress = progress
             isProcessing = true
             currentRequestCancelled = false
+
+            events.send(.requestStarted(request))
 
             do {
                 let configData = try request.configuration.toFlatBufferData()
@@ -310,6 +486,7 @@ public class DrawThingsQueue: ObservableObject {
 
                 if currentRequestCancelled {
                     cancelledIDs.insert(request.id)
+                    events.send(.requestCancelled(request.id))
                 } else {
                     let images = try resultData.map { try ImageHelpers.dtTensorToImage($0) }
                     let result = GenerationResult(
@@ -323,6 +500,8 @@ public class DrawThingsQueue: ObservableObject {
                     resultsByID[result.id] = result
                     trimCompletedResults()
 
+                    events.send(.requestCompleted(result))
+
                     for (_, continuation) in resultContinuations {
                         continuation.yield(result)
                     }
@@ -330,18 +509,27 @@ public class DrawThingsQueue: ObservableObject {
 
             } catch is CancellationError {
                 cancelledIDs.insert(request.id)
+                events.send(.requestCancelled(request.id))
             } catch {
                 if !currentRequestCancelled {
-                    let genError = GenerationError(
-                        id: request.id,
-                        request: request,
-                        underlyingError: error,
-                        occurredAt: Date()
-                    )
-                    errors.append(genError)
-                    errorsByID[genError.id] = genError
+                    if isConnectivityError(error) {
+                        // Connectivity error: re-queue and pause
+                        pendingRequests.insert(request, at: 0)
+                        pauseForReconnection(error: "Connection lost: \(error.localizedDescription)")
+                    } else {
+                        let genError = GenerationError(
+                            id: request.id,
+                            request: request,
+                            underlyingError: error,
+                            occurredAt: Date()
+                        )
+                        errors.append(genError)
+                        errorsByID[genError.id] = genError
+                        events.send(.requestFailed(genError))
+                    }
                 } else {
                     cancelledIDs.insert(request.id)
+                    events.send(.requestCancelled(request.id))
                 }
             }
 
@@ -366,12 +554,14 @@ public class DrawThingsQueue: ObservableObject {
             progress.stage = .imageEncoding
         case .sampling(let sampling):
             progress.stage = .sampling(step: Int(sampling.step))
+            progress.currentStep = Int(sampling.step)
         case .imageDecoded:
             progress.stage = .imageDecoding
         case .secondPassImageEncoded:
             progress.stage = .secondPassImageEncoding
         case .secondPassSampling(let sampling):
             progress.stage = .secondPassSampling(step: Int(sampling.step))
+            progress.currentStep = Int(sampling.step)
         case .secondPassImageDecoded:
             progress.stage = .secondPassImageDecoding
         case .faceRestored:
@@ -380,6 +570,10 @@ public class DrawThingsQueue: ObservableObject {
             progress.stage = .imageUpscaling
         default:
             break
+        }
+
+        if let request = currentRequest {
+            events.send(.requestProgress(request, progress))
         }
     }
 
@@ -395,5 +589,15 @@ public class DrawThingsQueue: ObservableObject {
             let removed = completedResults.removeFirst()
             resultsByID.removeValue(forKey: removed.id)
         }
+    }
+
+    private func isConnectivityError(_ error: Error) -> Bool {
+        let description = error.localizedDescription.lowercased()
+        return description.contains("connection") ||
+               description.contains("network") ||
+               description.contains("unavailable") ||
+               description.contains("timeout") ||
+               description.contains("refused") ||
+               description.contains("reset")
     }
 }
