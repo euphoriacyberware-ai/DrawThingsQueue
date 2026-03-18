@@ -125,8 +125,13 @@ public final class HintBuilder {
         var hintsByType: [String: [TensorAndWeight]] = [:]
 
         for hint in hints {
+            // Convert raw image data (PNG/JPEG) to DTTensor format for the server
+            guard let image = PlatformImage(data: hint.imageData),
+                  let tensorData = try? ImageHelpers.imageToDTTensor(image, forceRGB: true) else {
+                continue
+            }
             var tensor = TensorAndWeight()
-            tensor.tensor = hint.imageData
+            tensor.tensor = tensorData
             tensor.weight = hint.weight
             hintsByType[hint.type, default: []].append(tensor)
         }
