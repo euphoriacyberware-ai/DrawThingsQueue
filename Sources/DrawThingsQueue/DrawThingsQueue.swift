@@ -7,6 +7,7 @@
 
 import Foundation
 import Combine
+import AVFoundation
 import DrawThingsClient
 
 #if os(macOS)
@@ -66,8 +67,14 @@ public struct GenerationRequest: Identifiable {
 public struct GenerationResult: Identifiable {
     public let id: UUID
     public let images: [PlatformImage]
+    public let audioData: [Data]
     public let request: GenerationRequest
+    public let startedAt: Date
     public let completedAt: Date
+
+    public var duration: TimeInterval {
+        completedAt.timeIntervalSince(startedAt)
+    }
 }
 
 // MARK: - GenerationError
@@ -143,6 +150,10 @@ public class DrawThingsQueue: ObservableObject {
     public var maxCompletedResults: Int = 50
     public var maxRetries: Int = 3
 
+    /// Optional closure to provide a model family for accurate preview/result image conversion.
+    /// The closure receives the model file name (if known) and returns a LatentModelFamily.
+    public var modelFamilyProvider: ((String?) -> LatentModelFamily?)? = nil
+
     // MARK: Event Publisher
 
     public let events = PassthroughSubject<JobEvent, Never>()
@@ -164,7 +175,7 @@ public class DrawThingsQueue: ObservableObject {
 
     // MARK: Private
 
-    private let service: DrawThingsService
+    private var service: DrawThingsService
     public var sharedSecret: String?
     private var processingTask: Task<Void, Never>?
     private var currentGenerationTask: Task<[Data], Error>?
@@ -177,6 +188,8 @@ public class DrawThingsQueue: ObservableObject {
     private var nextStreamID: Int = 0
     private var retryCounts: [UUID: Int] = [:]
     private var storage: QueueStorage?
+    private var currentStartedAt: Date?
+    private var collectedAudioData: [Data] = []
 
     // MARK: Init
 
@@ -184,6 +197,25 @@ public class DrawThingsQueue: ObservableObject {
         self.service = try DrawThingsService(address: address, useTLS: useTLS)
         self.sharedSecret = sharedSecret
         self.storage = storage
+    }
+
+    /// Initialize with an externally-provided DrawThingsService instance.
+    public init(service: DrawThingsService, sharedSecret: String? = nil, storage: QueueStorage? = nil) {
+        self.service = service
+        self.sharedSecret = sharedSecret
+        self.storage = storage
+    }
+
+    /// Update the connection to a new server address, e.g. when the user switches profiles.
+    public func updateConnection(address: String, useTLS: Bool = true, sharedSecret: String? = nil) throws {
+        self.service = try DrawThingsService(address: address, useTLS: useTLS)
+        self.sharedSecret = sharedSecret
+    }
+
+    /// Update the connection to use an externally-provided service.
+    public func updateConnection(service: DrawThingsService, sharedSecret: String? = nil) {
+        self.service = service
+        self.sharedSecret = sharedSecret
     }
 
     deinit {
@@ -220,8 +252,27 @@ public class DrawThingsQueue: ObservableObject {
     }
 
     public func enqueue(_ request: GenerationRequest) {
-        pendingRequests.append(request)
-        events.send(.requestAdded(request))
+        // Auto-assign a random seed if not set, so the seed is known and reproducible
+        var req = request
+        let needsSeed = req.configuration.seed == nil || req.configuration.seed! < 0
+        if needsSeed {
+            req = GenerationRequest(
+                id: req.id,
+                prompt: req.prompt,
+                negativePrompt: req.negativePrompt,
+                configuration: {
+                    var config = req.configuration
+                    config.seed = Int64(UInt32.random(in: 0...UInt32.max))
+                    return config
+                }(),
+                image: req.image,
+                mask: req.mask,
+                hints: req.hints,
+                name: req.name
+            )
+        }
+        pendingRequests.append(req)
+        events.send(.requestAdded(req))
         persist()
         ensureProcessingStarted()
         signalContinuation?.yield(())
@@ -443,6 +494,8 @@ public class DrawThingsQueue: ObservableObject {
             currentProgress = progress
             isProcessing = true
             currentRequestCancelled = false
+            currentStartedAt = Date()
+            collectedAudioData = []
 
             events.send(.requestStarted(request))
 
@@ -479,6 +532,14 @@ public class DrawThingsQueue: ObservableObject {
                             await MainActor.run {
                                 self?.updatePreview(previewData)
                             }
+                        },
+                        audioHandler: { [weak self] audioTensorData in
+                            await MainActor.run {
+                                if let buffer = try? AudioHelpers.ccvTensorToAudioBuffer(audioTensorData),
+                                   let wavData = try? AudioHelpers.audioBufferToWAVData(buffer) {
+                                    self?.collectedAudioData.append(wavData)
+                                }
+                            }
                         }
                     )
                 }
@@ -491,11 +552,14 @@ public class DrawThingsQueue: ObservableObject {
                     cancelledIDs.insert(request.id)
                     events.send(.requestCancelled(request.id))
                 } else {
-                    let images = try resultData.map { try ImageHelpers.dtTensorToImage($0) }
+                    let modelFamily = modelFamilyProvider?(request.configuration.model)
+                    let images = try resultData.map { try ImageHelpers.dtTensorToImage($0, modelFamily: modelFamily) }
                     let result = GenerationResult(
                         id: request.id,
                         images: images,
+                        audioData: collectedAudioData,
                         request: request,
+                        startedAt: currentStartedAt ?? Date(),
                         completedAt: Date()
                     )
 
@@ -582,7 +646,8 @@ public class DrawThingsQueue: ObservableObject {
 
     private func updatePreview(_ previewData: Data) {
         guard let progress = currentProgress else { return }
-        if let image = try? ImageHelpers.dtTensorToImage(previewData) {
+        let modelFamily = modelFamilyProvider?(currentRequest?.configuration.model)
+        if let image = try? ImageHelpers.dtTensorToImage(previewData, modelFamily: modelFamily) {
             progress.previewImage = image
         }
     }
