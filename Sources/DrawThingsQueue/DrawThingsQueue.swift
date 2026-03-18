@@ -535,9 +535,28 @@ public class DrawThingsQueue: ObservableObject {
                         },
                         audioHandler: { [weak self] audioTensorData in
                             await MainActor.run {
-                                if let buffer = try? AudioHelpers.ccvTensorToAudioBuffer(audioTensorData),
-                                   let wavData = try? AudioHelpers.audioBufferToWAVData(buffer) {
+                                do {
+                                    let buffer = try AudioHelpers.ccvTensorToAudioBuffer(audioTensorData)
+                                    let wavData = try AudioHelpers.audioBufferToWAVData(buffer)
                                     self?.collectedAudioData.append(wavData)
+                                    print("[DrawThingsQueue] Audio collected: \(wavData.count) bytes (\(buffer.frameLength) frames, \(buffer.format.channelCount) channels)")
+                                } catch {
+                                    print("[DrawThingsQueue] Audio conversion failed: \(error)")
+                                    print("[DrawThingsQueue] Audio tensor size: \(audioTensorData.count) bytes")
+                                    // Dump first 68 bytes of header for debugging
+                                    if audioTensorData.count >= 68 {
+                                        let headerBytes = audioTensorData.prefix(68)
+                                        let header = headerBytes.withUnsafeBytes { ptr -> [UInt32] in
+                                            (0..<17).map { ptr.load(fromByteOffset: $0 * 4, as: UInt32.self) }
+                                        }
+                                        print("[DrawThingsQueue] Header[0] identifier: 0x\(String(header[0], radix: 16))")
+                                        print("[DrawThingsQueue] Header[2] format: 0x\(String(header[2], radix: 16))")
+                                        print("[DrawThingsQueue] Header[3] dataType: 0x\(String(header[3], radix: 16))")
+                                        print("[DrawThingsQueue] Header[5] dim0: \(header[5])")
+                                        print("[DrawThingsQueue] Header[6] height: \(header[6])")
+                                        print("[DrawThingsQueue] Header[7] width: \(header[7])")
+                                        print("[DrawThingsQueue] Header[8] channels: \(header[8])")
+                                    }
                                 }
                             }
                         }
