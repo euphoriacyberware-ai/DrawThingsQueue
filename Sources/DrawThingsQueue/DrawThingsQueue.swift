@@ -165,6 +165,7 @@ public class DrawThingsQueue: ObservableObject {
     // MARK: Private
 
     private let service: DrawThingsService
+    public var sharedSecret: String?
     private var processingTask: Task<Void, Never>?
     private var currentGenerationTask: Task<[Data], Error>?
     private var currentRequestCancelled = false
@@ -179,8 +180,9 @@ public class DrawThingsQueue: ObservableObject {
 
     // MARK: Init
 
-    public init(address: String, useTLS: Bool = true, storage: QueueStorage? = nil) throws {
+    public init(address: String, useTLS: Bool = true, sharedSecret: String? = nil, storage: QueueStorage? = nil) throws {
         self.service = try DrawThingsService(address: address, useTLS: useTLS)
+        self.sharedSecret = sharedSecret
         self.storage = storage
     }
 
@@ -467,6 +469,7 @@ public class DrawThingsQueue: ObservableObject {
                         image: imageData,
                         mask: maskData,
                         hints: request.hints,
+                        sharedSecret: self.sharedSecret,
                         progressHandler: { [weak self] signpost in
                             await MainActor.run {
                                 self?.updateProgress(signpost)
