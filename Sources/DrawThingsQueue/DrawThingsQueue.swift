@@ -536,10 +536,24 @@ public class DrawThingsQueue: ObservableObject {
                         audioHandler: { [weak self] audioTensorData in
                             await MainActor.run {
                                 do {
-                                    let buffer = try AudioHelpers.ccvTensorToAudioBuffer(audioTensorData)
+                                    // Determine audio sample rate from model.
+                                    // LTX-2 outputs 24kHz audio, LTX-2.3 outputs 48kHz.
+                                    let modelName = request.configuration.model.lowercased()
+                                    let audioSampleRate: Double
+                                    if modelName.contains("ltx") {
+                                        if modelName.contains("2.3") || modelName.contains("2_3") {
+                                            audioSampleRate = 48000
+                                        } else {
+                                            audioSampleRate = 24000
+                                        }
+                                    } else {
+                                        audioSampleRate = 16000
+                                    }
+                                    print("[DrawThingsQueue] Audio sample rate: \(Int(audioSampleRate))Hz for model: \(request.configuration.model)")
+                                    let buffer = try AudioHelpers.ccvTensorToAudioBuffer(audioTensorData, sampleRate: audioSampleRate)
                                     let wavData = try AudioHelpers.audioBufferToWAVData(buffer)
                                     self?.collectedAudioData.append(wavData)
-                                    print("[DrawThingsQueue] Audio collected: \(wavData.count) bytes (\(buffer.frameLength) frames, \(buffer.format.channelCount) channels)")
+                                    print("[DrawThingsQueue] Audio collected: \(wavData.count) bytes (\(buffer.frameLength) frames, \(buffer.format.channelCount) channels, \(Int(buffer.format.sampleRate))Hz)")
                                 } catch {
                                     print("[DrawThingsQueue] Audio conversion failed: \(error)")
                                     print("[DrawThingsQueue] Audio tensor size: \(audioTensorData.count) bytes")
