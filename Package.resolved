@@ -6,7 +6,7 @@
       "location" : "https://github.com/euphoriacyberware-ai/DT-gRPC-Swift-Client",
       "state" : {
         "branch" : "main",
-        "revision" : "9917ce733fe6b370e1cae3f51aab20b89d559ea8"
+        "revision" : "233e40d54eeeab7a50520d92b42e7b91d5b46839"
       }
     },
     {
@@ -88,14 +88,6 @@
       "state" : {
         "revision" : "fa308c07a6fa04a727212d793e761460e41049c3",
         "version" : "4.3.0"
-      }
-    },
-    {
-      "identity" : "swift-fpzip-support",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/weiyanlin117/swift-fpzip-support.git",
-      "state" : {
-        "revision" : "0ec6d4668c9c83bc3da0f8b2d6dfc46da0b98609"
       }
     },
     {
