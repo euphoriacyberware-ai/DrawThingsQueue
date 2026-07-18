@@ -62,6 +62,57 @@ public struct GenerationRequest: Identifiable {
     }
 }
 
+/// Sendable pixel snapshots taken before leaving the queue's UI actor.
+struct GenerationInputPixels: Sendable {
+    let image: CGImage?
+    let mask: CGImage?
+
+    @MainActor
+    init(image: PlatformImage?, mask: PlatformImage?) throws {
+        self.image = try Self.cgImage(from: image)
+        self.mask = try Self.cgImage(from: mask)
+    }
+
+    private static func cgImage(from image: PlatformImage?) throws -> CGImage? {
+        guard let image else { return nil }
+        guard let cgImage = image.cgImageRepresentation else {
+            throw ImageError.invalidImage
+        }
+        return cgImage
+    }
+}
+
+struct PreparedGenerationInput: Sendable {
+    let configuration: Data
+    let image: Data?
+    let mask: Data?
+}
+
+/// Pure request encoding that is safe to run on a cooperative executor.
+enum GenerationInputPreparation {
+    typealias TensorEncoder = @Sendable (CGImage, Bool) throws -> Data
+
+    static func prepare(
+        configuration: DrawThingsConfiguration,
+        pixels: GenerationInputPixels,
+        encoder: TensorEncoder = { image, forceRGB in
+            try ImageHelpers.imageToDTTensor(image, forceRGB: forceRGB)
+        }
+    ) throws -> PreparedGenerationInput {
+        try Task.checkCancellation()
+        let configurationData = try configuration.toFlatBufferData()
+        let imageData = try pixels.image.map { try encoder($0, true) }
+        try Task.checkCancellation()
+        let maskData = try pixels.mask.map { try encoder($0, true) }
+        try Task.checkCancellation()
+        return PreparedGenerationInput(
+            configuration: configurationData,
+            image: imageData,
+            mask: maskData
+        )
+    }
+}
+
 // MARK: - GenerationResult
 
 public struct GenerationResult: Identifiable {
@@ -178,6 +229,7 @@ public class DrawThingsQueue: ObservableObject {
     private var service: DrawThingsService
     public var sharedSecret: String?
     private var processingTask: Task<Void, Never>?
+    private var currentInputPreparationTask: Task<PreparedGenerationInput, Error>?
     private var currentGenerationTask: Task<[Data], Error>?
     private var currentRequestCancelled = false
     private var resultsByID: [UUID: GenerationResult] = [:]
@@ -220,6 +272,7 @@ public class DrawThingsQueue: ObservableObject {
 
     deinit {
         processingTask?.cancel()
+        currentInputPreparationTask?.cancel()
         signalContinuation?.finish()
         for (_, continuation) in resultContinuations {
             continuation.finish()
@@ -326,6 +379,7 @@ public class DrawThingsQueue: ObservableObject {
         }
         if let current = currentRequest, current.id == id {
             currentRequestCancelled = true
+            currentInputPreparationTask?.cancel()
             currentGenerationTask?.cancel()
             return true
         }
@@ -341,6 +395,7 @@ public class DrawThingsQueue: ObservableObject {
         if let current = currentRequest {
             cancelledIDs.insert(current.id)
             currentRequestCancelled = true
+            currentInputPreparationTask?.cancel()
             currentGenerationTask?.cancel()
         }
         persist()
@@ -500,27 +555,20 @@ public class DrawThingsQueue: ObservableObject {
             events.send(.requestStarted(request))
 
             do {
-                let configData = try request.configuration.toFlatBufferData()
-
-                let imageData: Data? = if let image = request.image {
-                    try ImageHelpers.imageToDTTensor(image, forceRGB: true)
-                } else {
-                    nil
-                }
-
-                let maskData: Data? = if let mask = request.mask {
-                    try ImageHelpers.imageToDTTensor(mask, forceRGB: true)
-                } else {
-                    nil
-                }
+                let pixels = try GenerationInputPixels(image: request.image, mask: request.mask)
+                let input = try await prepareInput(
+                    configuration: request.configuration,
+                    pixels: pixels
+                )
+                guard !currentRequestCancelled else { throw CancellationError() }
 
                 let generationTask = Task<[Data], Error> {
                     try await self.service.generateImage(
                         prompt: request.prompt,
                         negativePrompt: request.negativePrompt,
-                        configuration: configData,
-                        image: imageData,
-                        mask: maskData,
+                        configuration: input.configuration,
+                        image: input.image,
+                        mask: input.mask,
                         hints: request.hints,
                         sharedSecret: self.sharedSecret,
                         progressHandler: { [weak self] signpost in
@@ -640,6 +688,24 @@ public class DrawThingsQueue: ObservableObject {
         }
 
         isProcessing = false
+    }
+
+    /// Configuration and full-image tensor encoding are CPU-bound. Keep the
+    /// queue's observable state on MainActor while this pure preparation runs
+    /// on the cooperative executor.
+    private func prepareInput(
+        configuration: DrawThingsConfiguration,
+        pixels: GenerationInputPixels
+    ) async throws -> PreparedGenerationInput {
+        let task = Task.detached(priority: .userInitiated) {
+            try GenerationInputPreparation.prepare(
+                configuration: configuration,
+                pixels: pixels
+            )
+        }
+        currentInputPreparationTask = task
+        defer { currentInputPreparationTask = nil }
+        return try await task.value
     }
 
     // MARK: Progress Updates
