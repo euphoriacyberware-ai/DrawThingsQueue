@@ -7,8 +7,81 @@
 
 import Testing
 import Foundation
+import CoreGraphics
 @testable import DrawThingsQueue
 import DrawThingsClient
+
+private final class ThreadRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [Bool] = []
+
+    func recordIsMainThread() {
+        lock.withLock { values.append(Thread.isMainThread) }
+    }
+
+    var recordedMainThread: Bool? {
+        lock.withLock { values.first }
+    }
+}
+
+private func testImage() -> CGImage {
+    let context = CGContext(
+        data: nil,
+        width: 4,
+        height: 3,
+        bitsPerComponent: 8,
+        bytesPerRow: 0,
+        space: CGColorSpace(name: CGColorSpace.sRGB)!,
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    )!
+    context.setFillColor(CGColor(gray: 0.5, alpha: 1))
+    context.fill(CGRect(x: 0, y: 0, width: 4, height: 3))
+    return context.makeImage()!
+}
+
+struct GenerationInputPreparationTests {
+    @Test @MainActor
+    func encodingRunsOffMainWhenDetached() async throws {
+        let recorder = ThreadRecorder()
+        let pixels = try GenerationInputPixels(
+            image: PlatformImage(cgImage: testImage(), size: CGSize(width: 4, height: 3)),
+            mask: nil
+        )
+        let configuration = DrawThingsConfiguration(width: 4, height: 3)
+
+        let prepared = try await Task.detached {
+            try GenerationInputPreparation.prepare(
+                configuration: configuration,
+                pixels: pixels,
+                encoder: { _, _ in
+                    recorder.recordIsMainThread()
+                    return Data([1, 2, 3])
+                }
+            )
+        }.value
+
+        #expect(recorder.recordedMainThread == false)
+        #expect(prepared.image == Data([1, 2, 3]))
+        #expect(prepared.mask == nil)
+        #expect(!prepared.configuration.isEmpty)
+    }
+
+    @Test @MainActor
+    func imageFreeRequestsSkipTensorEncoder() throws {
+        let pixels = try GenerationInputPixels(image: nil, mask: nil)
+        let prepared = try GenerationInputPreparation.prepare(
+            configuration: DrawThingsConfiguration(),
+            pixels: pixels,
+            encoder: { _, _ in
+                Issue.record("Image-free request unexpectedly invoked the encoder")
+                return Data()
+            }
+        )
+
+        #expect(prepared.image == nil)
+        #expect(prepared.mask == nil)
+    }
+}
 
 // MARK: - GenerationRequest Tests
 
