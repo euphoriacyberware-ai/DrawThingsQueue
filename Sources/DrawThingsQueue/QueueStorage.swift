@@ -132,6 +132,12 @@ struct PersistableConfiguration: Codable {
     var compressionArtifacts: Int8
     var compressionArtifactsQuality: Float
 
+    // Color calibration
+    var colorCalibration: Int8
+
+    // Prompt expansion
+    var expandPromptToJson: Bool
+
     // Mask/Inpaint
     var maskBlur: Float
     var maskBlurOutset: Int32
@@ -247,6 +253,8 @@ struct PersistableConfiguration: Codable {
         self.cfgZeroInitSteps = config.cfgZeroInitSteps
         self.compressionArtifacts = config.compressionArtifacts.rawValue
         self.compressionArtifactsQuality = config.compressionArtifactsQuality
+        self.colorCalibration = config.colorCalibration.rawValue
+        self.expandPromptToJson = config.expandPromptToJson
         self.maskBlur = config.maskBlur
         self.maskBlurOutset = config.maskBlurOutset
         self.preserveOriginalAfterInpaint = config.preserveOriginalAfterInpaint
@@ -337,6 +345,8 @@ struct PersistableConfiguration: Codable {
             cfgZeroInitSteps: cfgZeroInitSteps,
             compressionArtifacts: CompressionMethod(rawValue: compressionArtifacts) ?? .disabled,
             compressionArtifactsQuality: compressionArtifactsQuality,
+            colorCalibration: ColorCalibration(rawValue: colorCalibration) ?? .disabled,
+            expandPromptToJson: expandPromptToJson,
             maskBlur: maskBlur,
             maskBlurOutset: maskBlurOutset,
             preserveOriginalAfterInpaint: preserveOriginalAfterInpaint,
