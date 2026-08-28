@@ -126,6 +126,38 @@ struct GenerationRequestTests {
         #expect(request.name == "Untitled")
     }
 
+    @Test func requestCarriesMetadataOverride() {
+        var override = MetadataOverride()
+        override.models = Data([1, 2, 3, 4])
+
+        let request = GenerationRequest(prompt: "test", override: override)
+        #expect(request.override?.models == Data([1, 2, 3, 4]))
+        #expect(GenerationRequest(prompt: "test").override == nil)
+    }
+
+    /// The auto-seed path in `enqueue(_:)` rebuilds the request field-by-field,
+    /// so it is easy to silently drop `override` there. A request without a seed
+    /// takes that path; the metadata must survive it.
+    @MainActor
+    @Test func autoSeedReconstructionPreservesOverride() throws {
+        var override = MetadataOverride()
+        override.models = Data([1, 2, 3, 4])
+
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("test_override_\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let queue = try DrawThingsQueue(address: "127.0.0.1:1", storage: QueueStorage(fileURL: tempURL))
+
+        var config = DrawThingsConfiguration()
+        config.seed = nil  // forces the reconstruction branch
+        queue.enqueue(GenerationRequest(prompt: "test", configuration: config, override: override))
+
+        let queued = try #require(queue.pendingRequests.first)
+        #expect(queued.configuration.seed != nil)          // seed was assigned
+        #expect(queued.override?.models == Data([1, 2, 3, 4]))  // override survived
+    }
+
     @Test func requestCustomName() {
         let request = GenerationRequest(prompt: "test", name: "My Custom Name")
         #expect(request.name == "My Custom Name")

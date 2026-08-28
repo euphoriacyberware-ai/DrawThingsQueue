@@ -26,6 +26,7 @@ public struct GenerationRequest: Identifiable {
     public let image: PlatformImage?
     public let mask: PlatformImage?
     public let hints: [HintProto]
+    public let override: MetadataOverride?
     public let createdAt: Date
     public let name: String
 
@@ -37,6 +38,7 @@ public struct GenerationRequest: Identifiable {
         image: PlatformImage? = nil,
         mask: PlatformImage? = nil,
         hints: [HintProto] = [],
+        override: MetadataOverride? = nil,
         name: String? = nil
     ) {
         self.id = id
@@ -46,6 +48,7 @@ public struct GenerationRequest: Identifiable {
         self.image = image
         self.mask = mask
         self.hints = hints
+        self.override = override
         self.createdAt = Date()
         self.name = name ?? Self.generateName(from: prompt)
     }
@@ -289,6 +292,7 @@ public class DrawThingsQueue: ObservableObject {
         image: PlatformImage? = nil,
         mask: PlatformImage? = nil,
         hints: [HintProto] = [],
+        override: MetadataOverride? = nil,
         name: String? = nil
     ) -> GenerationRequest {
         let request = GenerationRequest(
@@ -298,6 +302,7 @@ public class DrawThingsQueue: ObservableObject {
             image: image,
             mask: mask,
             hints: hints,
+            override: override,
             name: name
         )
         enqueue(request)
@@ -321,6 +326,7 @@ public class DrawThingsQueue: ObservableObject {
                 image: req.image,
                 mask: req.mask,
                 hints: req.hints,
+                override: req.override,
                 name: req.name
             )
         }
@@ -570,6 +576,7 @@ public class DrawThingsQueue: ObservableObject {
                         image: input.image,
                         mask: input.mask,
                         hints: request.hints,
+                        override: request.override,
                         sharedSecret: self.sharedSecret,
                         progressHandler: { [weak self] signpost in
                             await MainActor.run {
