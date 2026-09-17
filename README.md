@@ -72,6 +72,12 @@ let queue = try DrawThingsQueue(address: "localhost:7859")
 
 The `address` parameter is the host and port of the Draw Things gRPC server. TLS is enabled by default; pass `useTLS: false` for plaintext connections.
 
+If you already have a `DrawThingsService` (for example one managed elsewhere in your app), the queue can share it instead of opening its own connection:
+
+```swift
+let queue = DrawThingsQueue(service: existingService)
+```
+
 ### With persistence
 
 Pass a `QueueStorage` instance to persist pending requests across app restarts:
@@ -269,6 +275,19 @@ if let progress = queue.currentProgress {
 ```
 
 `GenerationStage` cases include: `.textEncoding`, `.imageEncoding`, `.sampling(step:)`, `.imageDecoding`, `.secondPassImageEncoding`, `.secondPassSampling(step:)`, `.secondPassImageDecoding`, `.faceRestoration`, `.imageUpscaling`.
+
+### Preview colors and model families
+
+Preview images arrive from the server as model-specific latents, and the coefficients used to turn them into RGB differ by model family (Flux, Qwen, Wan, SD3, and so on). The queue converts previews and results to `PlatformImage` for you, but it needs to know which family the current model belongs to. Provide that with `modelFamilyProvider`; without it the queue falls back to default coefficients, which produces off-color previews for some models.
+
+```swift
+// Detect from the model filename in each request's configuration
+queue.modelFamilyProvider = { modelFile in
+    modelFile.map { LatentModelFamily.detect(from: $0) }
+}
+```
+
+`LatentModelFamily.detect(from:)` accepts either a model filename or a Draw Things version string; if your app has the server's model catalog available, passing the version string gives the most reliable result. See the [DrawThingsClient](https://github.com/euphoriacyberware-ai/DT-gRPC-Swift-Client) documentation for the list of supported families.
 
 ## Pause and Resume
 
