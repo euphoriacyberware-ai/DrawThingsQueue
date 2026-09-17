@@ -1,3 +1,5 @@
+<p align="center"><img src="Assets/logo.png" alt="DrawThingsClient Logo" width="200"/></p>
+
 # DrawThingsQueue
 
 A Swift framework that provides a queue-based API for image generation with the [Draw Things](https://drawthings.ai) gRPC server.
