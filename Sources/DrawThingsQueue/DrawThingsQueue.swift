@@ -208,6 +208,31 @@ public class DrawThingsQueue: ObservableObject {
     /// The closure receives the model file name (if known) and returns a LatentModelFamily.
     public var modelFamilyProvider: ((String?) -> LatentModelFamily?)? = nil
 
+    /// Optional closure to provide the audio sample rate (Hz) for a model file name.
+    /// Generated audio arrives as a raw waveform with no rate metadata, so the rate must be
+    /// known from the model. Return nil to fall back to the built-in file-name heuristic
+    /// (`defaultAudioSampleRate(forModelFile:)`).
+    public var audioSampleRateProvider: (@MainActor (String) -> Double?)? = nil
+
+    /// Fallback audio sample rate derived from the model file name.
+    ///
+    /// Matches Draw Things' `ModelZoo.audioSampleRateForModel`:
+    /// MiniMax H3 = 32kHz, LongCat Avatar = 16kHz, LTX-2 = 24kHz, LTX-2.3 = 48kHz, default 24kHz.
+    nonisolated static func defaultAudioSampleRate(forModelFile model: String) -> Double {
+        let name = model.lowercased()
+        if name.contains("minimax") {
+            return 32000
+        } else if name.contains("longcat") {
+            return 16000
+        } else if name.contains("ltx") {
+            if name.contains("2.3") || name.contains("2_3") {
+                return 48000
+            }
+            return 24000
+        }
+        return 24000
+    }
+
     // MARK: Event Publisher
 
     public let events = PassthroughSubject<JobEvent, Never>()
@@ -591,19 +616,11 @@ public class DrawThingsQueue: ObservableObject {
                         audioHandler: { [weak self] audioTensorData in
                             await MainActor.run {
                                 do {
-                                    // Determine audio sample rate from model.
-                                    // LTX-2 outputs 24kHz audio, LTX-2.3 outputs 48kHz.
-                                    let modelName = request.configuration.model.lowercased()
-                                    let audioSampleRate: Double
-                                    if modelName.contains("ltx") {
-                                        if modelName.contains("2.3") || modelName.contains("2_3") {
-                                            audioSampleRate = 48000
-                                        } else {
-                                            audioSampleRate = 24000
-                                        }
-                                    } else {
-                                        audioSampleRate = 16000
-                                    }
+                                    // Determine audio sample rate from model: prefer the host's
+                                    // provider (which can consult server model metadata), then
+                                    // fall back to the file-name heuristic.
+                                    let audioSampleRate = self?.audioSampleRateProvider?(request.configuration.model)
+                                        ?? Self.defaultAudioSampleRate(forModelFile: request.configuration.model)
                                     print("[DrawThingsQueue] Audio sample rate: \(Int(audioSampleRate))Hz for model: \(request.configuration.model)")
                                     let buffer = try AudioHelpers.ccvTensorToAudioBuffer(audioTensorData, sampleRate: audioSampleRate)
                                     let wavData = try AudioHelpers.audioBufferToWAVData(buffer)
