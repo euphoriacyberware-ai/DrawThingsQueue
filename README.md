@@ -1,12 +1,39 @@
 # DrawThingsQueue
 
-A Swift framework that provides a queue-based API for image generation using [Draw Things](https://drawthings.ai). Enqueue generation requests, observe progress with live preview images, and retrieve results using standard Swift concurrency or SwiftUI bindings.
+A Swift framework that provides a queue-based API for image generation with the [Draw Things](https://drawthings.ai) gRPC server.
+
+## Overview
+
+DrawThingsQueue sits on top of [DrawThingsClient](https://github.com/euphoriacyberware-ai/DT-gRPC-Swift-Client) and turns one-shot generation calls into a managed job queue. Enqueue requests, observe progress with live preview images, and retrieve results using standard Swift concurrency or SwiftUI bindings. Using it in an app means you don't have to hand-roll job ordering, retries, cancellation, persistence or progress plumbing — the queue handles all of that and your app just reacts to events.
+
+> ⚠️ **Caution:** This library is capable of generating very large batch jobs which can result in your account being throttled by the Draw Things cloud service if used with "bridge mode". It is recommended you only run large batches with local generation.
+
+## Features
+
+- **Sequential FIFO processing**: Requests run one at a time in order and the queue auto-starts on the first enqueue
+- **Live progress**: Generation stage, step counts and a live preview image for the in-flight request
+- **Pause / resume**: Manual control, plus automatic pause on connectivity errors with the reason in `lastError`
+- **Retry**: Failed requests can be retried up to a configurable maximum
+- **Reordering**: Move pending requests, ideal for drag-and-drop lists
+- **Cancellation**: Cancel pending or in-progress requests; the gRPC call is cancelled cooperatively
+- **Persistence**: Save pending requests across app restarts with `QueueStorage`
+- **Combine and async/await**: An `events` publisher for lifecycle events and an `AsyncStream` of results
+- **SwiftUI-ready**: `DrawThingsQueue` and `GenerationProgress` are `ObservableObject`s with `@Published` state
+- **Native image types**: Inputs and results are `PlatformImage` (`NSImage`/`UIImage`); DTTensor conversion is handled for you
+- **Control hints**: `HintBuilder` for depth, pose, canny, moodboard and other ControlNet hints
 
 ## Requirements
 
-- macOS 14+ / iOS 17+
+- macOS 14.0+ / iOS 17.0+
 - Swift 5.9+
+- Xcode 15.0+
 - A running [Draw Things](https://drawthings.ai) gRPC server
+
+## Dependencies
+
+**DrawThings family:**
+
+- [DrawThingsClient](https://github.com/euphoriacyberware-ai/DT-gRPC-Swift-Client) (DT-gRPC-Swift-Client) — gRPC transport and image conversion
 
 ## Installation
 
@@ -486,10 +513,10 @@ A chainable builder for constructing `[HintProto]` arrays:
 | `.requestCancelled` | `UUID` | A request was cancelled |
 | `.requestRemoved` | `UUID` | A request was removed from any state |
 
-## Dependencies
-
-- [DrawThingsClient](https://github.com/euphoriacyberware-ai/DT-gRPC-Swift-Client) (DT-gRPC-Swift-Client)
-
 ## License
 
-See [LICENSE](LICENSE) for details.
+MIT License - see LICENSE file for details.
+
+## Disclaimer
+
+The "Draw Things" name is used in this project only because Draw Things is the application these libraries are designed to work with. The author is not affiliated with, endorsed by, or associated with the developers of Draw Things. The code in this library was independently derived and is not based on Draw Things source code.
