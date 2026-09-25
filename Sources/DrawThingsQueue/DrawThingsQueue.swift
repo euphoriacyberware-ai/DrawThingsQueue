@@ -621,27 +621,27 @@ public class DrawThingsQueue: ObservableObject {
                                     // fall back to the file-name heuristic.
                                     let audioSampleRate = self?.audioSampleRateProvider?(request.configuration.model)
                                         ?? Self.defaultAudioSampleRate(forModelFile: request.configuration.model)
-                                    print("[DrawThingsQueue] Audio sample rate: \(Int(audioSampleRate))Hz for model: \(request.configuration.model)")
+                                    DTLogger.debug("Audio sample rate: \(Int(audioSampleRate))Hz for model: \(request.configuration.model)", category: .queue)
                                     let buffer = try AudioHelpers.ccvTensorToAudioBuffer(audioTensorData, sampleRate: audioSampleRate)
                                     let wavData = try AudioHelpers.audioBufferToWAVData(buffer)
                                     self?.collectedAudioData.append(wavData)
-                                    print("[DrawThingsQueue] Audio collected: \(wavData.count) bytes (\(buffer.frameLength) frames, \(buffer.format.channelCount) channels, \(Int(buffer.format.sampleRate))Hz)")
+                                    DTLogger.debug("Audio collected: \(wavData.count) bytes (\(buffer.frameLength) frames, \(buffer.format.channelCount) channels, \(Int(buffer.format.sampleRate))Hz)", category: .queue)
                                 } catch {
-                                    print("[DrawThingsQueue] Audio conversion failed: \(error)")
-                                    print("[DrawThingsQueue] Audio tensor size: \(audioTensorData.count) bytes")
+                                    DTLogger.error("Audio conversion failed: \(error)", category: .queue)
+                                    DTLogger.debug("Audio tensor size: \(audioTensorData.count) bytes", category: .queue)
                                     // Dump first 68 bytes of header for debugging
                                     if audioTensorData.count >= 68 {
                                         let headerBytes = audioTensorData.prefix(68)
                                         let header = headerBytes.withUnsafeBytes { ptr -> [UInt32] in
                                             (0..<17).map { ptr.load(fromByteOffset: $0 * 4, as: UInt32.self) }
                                         }
-                                        print("[DrawThingsQueue] Header[0] identifier: 0x\(String(header[0], radix: 16))")
-                                        print("[DrawThingsQueue] Header[2] format: 0x\(String(header[2], radix: 16))")
-                                        print("[DrawThingsQueue] Header[3] dataType: 0x\(String(header[3], radix: 16))")
-                                        print("[DrawThingsQueue] Header[5] dim0: \(header[5])")
-                                        print("[DrawThingsQueue] Header[6] height: \(header[6])")
-                                        print("[DrawThingsQueue] Header[7] width: \(header[7])")
-                                        print("[DrawThingsQueue] Header[8] channels: \(header[8])")
+                                        DTLogger.debug("Header[0] identifier: 0x\(String(header[0], radix: 16))", category: .queue)
+                                        DTLogger.debug("Header[2] format: 0x\(String(header[2], radix: 16))", category: .queue)
+                                        DTLogger.debug("Header[3] dataType: 0x\(String(header[3], radix: 16))", category: .queue)
+                                        DTLogger.debug("Header[5] dim0: \(header[5])", category: .queue)
+                                        DTLogger.debug("Header[6] height: \(header[6])", category: .queue)
+                                        DTLogger.debug("Header[7] width: \(header[7])", category: .queue)
+                                        DTLogger.debug("Header[8] channels: \(header[8])", category: .queue)
                                     }
                                 }
                             }
