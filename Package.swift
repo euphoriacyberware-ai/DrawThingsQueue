@@ -15,9 +15,7 @@ let package = Package(
     ],
     dependencies: [
         // Use remote URLs for release
-        .package(url: "https://github.com/euphoriacyberware-ai/DT-gRPC-Swift-Client", branch: "main"),
-        // .package(url: "https://github.com/euphoriacyberware-ai/DT-gRPC-Swift-Client.git", branch: "main"),
-        //.package(path: "../DT-gRPC-Swift-Client"),
+        .package(url: "https://github.com/euphoriacyberware-ai/DT-gRPC-Swift-Client", .upToNextMajor(from: "1.7.2")),
     ],
     targets: [
         .target(

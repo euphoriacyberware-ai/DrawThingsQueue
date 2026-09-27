@@ -23,6 +23,7 @@ DrawThingsQueue sits on top of [DrawThingsClient](https://github.com/euphoriacyb
 - **SwiftUI-ready**: `DrawThingsQueue` and `GenerationProgress` are `ObservableObject`s with `@Published` state
 - **Native image types**: Inputs and results are `PlatformImage` (`NSImage`/`UIImage`); DTTensor conversion is handled for you
 - **Control hints**: `HintBuilder` for depth, pose, canny, moodboard and other ControlNet hints
+- **Diagnostics**: Logs through the shared `DTLogger` (`.queue` category); off by default (see [Logging](#logging))
 
 ## Requirements
 
@@ -533,6 +534,24 @@ A chainable builder for constructing `[HintProto]` arrays:
 | `.requestFailed` | `GenerationError` | A request failed |
 | `.requestCancelled` | `UUID` | A request was cancelled |
 | `.requestRemoved` | `UUID` | A request was removed from any state |
+
+## Logging
+
+DrawThingsQueue logs through `DTLogger` from DrawThingsClient, in the `.queue` category (audio collection and conversion diagnostics). The same logger also carries the client's gRPC and image-conversion messages. Logging is off by default; enable it in your app:
+
+```swift
+import DrawThingsClient
+
+DTLogger.minimumLevel = .debug
+```
+
+View the output in Xcode's console, in Console.app (subsystem `com.drawthings`), or in Terminal:
+
+```bash
+log stream --predicate 'subsystem == "com.drawthings"' --level debug
+```
+
+See [Logging & Debugging](https://github.com/euphoriacyberware-ai/DT-gRPC-Swift-Client#logging--debugging) in the DrawThingsClient README for levels, categories and other settings.
 
 ## License
 
