@@ -2,6 +2,15 @@
 
 # DrawThingsQueue
 
+> [!IMPORTANT]
+> **DrawThingsQueue has moved into [DrawThings-Swift](https://github.com/euphoriacyberware-ai/DrawThings-Swift).** Since DrawThings-Swift 2.0.0 it is the
+> `DrawThingsQueue` product of that package, rebuilt on the 2.0 client: the class is now `GenerationQueue`,
+> it is `@Observable`, and saved queues keep their input images. New development happens there.
+>
+> This repository stays at **0.1.1**, which works with DrawThingsClient 1.x. Pin it with
+> `.upToNextMajor(from: "0.1.1")` until you move to 2.0; see the
+> [migration guide](https://github.com/euphoriacyberware-ai/DrawThings-Swift/blob/main/MIGRATING-2.0.md#drawthingsqueue-0x).
+
 A Swift framework that provides a queue-based API for image generation with the [Draw Things](https://drawthings.ai) gRPC server.
 
 ## Overview
